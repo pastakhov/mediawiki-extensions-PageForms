@@ -14,4 +14,4 @@
 		});
 	};
 
-} )( jQuery, OO, mediaWiki, pf )
+} )( jQuery, OO, mediaWiki, pf );
