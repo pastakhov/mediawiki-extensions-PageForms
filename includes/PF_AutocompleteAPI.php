@@ -61,7 +61,12 @@ class PFAutocompleteAPI extends ApiBase {
 		} elseif ( $cargo_table !== null && $cargo_field !== null ) {
 			$data = self::getAllValuesForCargoField( $cargo_table, $cargo_field, $substr, $base_cargo_table, $base_cargo_field, $basevalue );
 		} elseif ( $namespace !== null ) {
-			$data = PFValuesUtils::getAllPagesForNamespace( $namespace, $substr );
+			$limit = PFValuesUtils::getMaxValuesToRetrieve( $substr );
+			$data = PFValuesUtils::getAllPagesForNamespace( $namespace, $substr, true, $limit );
+			$limit -= count( $data );
+			if ( $limit > 0 ) {
+				$data += PFValuesUtils::getAllPagesForNamespace( $namespace, $substr, false, $limit );
+			}
 			$map = $wgPageFormsUseDisplayTitle;
 		} elseif ( $external_url !== null ) {
 			$data = PFValuesUtils::getValuesFromExternalURL( $external_url, $substr );

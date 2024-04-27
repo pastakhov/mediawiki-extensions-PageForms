@@ -427,7 +427,7 @@ class PFValuesUtils {
 		return $pages;
 	}
 
-	public static function getAllPagesForNamespace( $namespaceStr, $substring = null ) {
+	public static function getAllPagesForNamespace( $namespaceStr, $substring = null, $startWith = false, $limit = null ) {
 		global $wgLanguageCode, $wgPageFormsUseDisplayTitle;
 
 		$namespaceNames = explode( ',', $namespaceStr );
@@ -506,9 +506,9 @@ class PFValuesUtils {
 			];
 			if ( $substring != null ) {
 				$substringCondition = '(pp_displaytitle.pp_value IS NULL AND (' .
-					self::getSQLConditionForAutocompleteInColumn( 'page_title', $substring ) .
+					self::getSQLConditionForAutocompleteInColumn( 'page_title', $substring, true, $startWith ) .
 					')) OR ' .
-					self::getSQLConditionForAutocompleteInColumn( 'pp_displaytitle.pp_value', $substring, false );
+					self::getSQLConditionForAutocompleteInColumn( 'pp_displaytitle.pp_value', $substring, false, $startWith );
 				if ( !in_array( NS_CATEGORY, $queriedNamespaces ) ) {
 					$substringCondition .= ' OR page_namespace = ' . NS_CATEGORY;
 				}
@@ -517,10 +517,13 @@ class PFValuesUtils {
 		} else {
 			$join = [];
 			if ( $substring != null ) {
-				$conditions[] = self::getSQLConditionForAutocompleteInColumn( 'page_title', $substring );
+				$conditions[] = self::getSQLConditionForAutocompleteInColumn( 'page_title', $substring, true,	$startWith );
 			}
 		}
-		$res = $db->select( $tables, $columns, $conditions, __METHOD__, $options = [], $join );
+		$options = [
+			'LIMIT' => $limit ?: self::getMaxValuesToRetrieve( $substring ),
+		];
+		$res = $db->select( $tables, $columns, $conditions, __METHOD__, $options, $join );
 
 		$pages = [];
 		$sortkeys = [];
@@ -752,7 +755,9 @@ class PFValuesUtils {
 	 * @param bool $replaceSpaces
 	 * @return string SQL condition for use in WHERE clause
 	 */
-	public static function getSQLConditionForAutocompleteInColumn( $column, $substring, $replaceSpaces = true ) {
+	public static function getSQLConditionForAutocompleteInColumn(
+		$column, $substring, $replaceSpaces = true, $startWith = false
+	) {
 		global $wgPageFormsAutocompleteOnAllChars;
 
 		$db = wfGetDB( DB_REPLICA );
@@ -771,12 +776,18 @@ class PFValuesUtils {
 		}
 
 		if ( $wgPageFormsAutocompleteOnAllChars ) {
-			return $column_value . $db->buildLike( $db->anyString(), $substring, $db->anyString() );
+			return $column_value . $db->buildLike( $startWith ? '' : $db->anyString(), $substring, $db->anyString() );
 		} else {
-			$spaceRepresentation = $replaceSpaces ? '_' : ' ';
-			return $column_value . $db->buildLike( $substring, $db->anyString() ) .
-				' OR ' . $column_value .
-				$db->buildLike( $db->anyString(), $spaceRepresentation . $substring, $db->anyString() );
+			$sqlCond = $column_value . $db->buildLike( $substring, $db->anyString() );
+			if ( !$startWith ) {
+				$spaceRepresentation = $replaceSpaces ? '_' : ' ';
+				$wordSeparators = [ $spaceRepresentation, '/', '(', ')', '-', '\'', '\"' ];
+				foreach ( $wordSeparators as $wordSeparator ) {
+					$sqlCond .= ' OR ' . $column_value .
+						$db->buildLike( $db->anyString(), $wordSeparator . $substring, $db->anyString() );
+				}
+			}
+			return $sqlCond;
 		}
 	}
 
@@ -842,4 +853,22 @@ class PFValuesUtils {
 		return $labels;
 	}
 
+	public static function getMaxValuesToRetrieve( $substring = null ) {
+		// $wgPageFormsMaxAutocompleteValues is currently misnamed,
+		// or mis-used - it's actually used for those cases where
+		// autocomplete *isn't* used, i.e. to populate a radiobutton
+		// input, where it makes sense to have a very large limit
+		// (current value: 1,000). For actual autocompletion, though,
+		// with a substring, a limit like 20 makes more sense. It
+		// would be good use the variable for this purpose instead,
+		// with a default like 20, and then create a new global
+		// variable, like $wgPageFormsMaxNonAutocompleteValues, to
+		// hold the much larger number.
+		if ( $substring == null ) {
+			global $wgPageFormsMaxAutocompleteValues;
+			return $wgPageFormsMaxAutocompleteValues;
+		} else {
+			return 20;
+		}
+	}
 }
